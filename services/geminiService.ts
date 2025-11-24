@@ -6,13 +6,24 @@ let aiClient: GoogleGenAI | null = null;
 
 const getClient = () => {
   if (!aiClient) {
-    // An toàn: Kiểm tra biến môi trường trước khi sử dụng
-    // Nếu chạy local/github pages không có build process, process.env có thể rỗng do polyfill
-    const apiKey = process.env.API_KEY || '';
+    // An toàn: Kiểm tra biến môi trường một cách an toàn cho cả môi trường Node và Browser
+    let apiKey = '';
+    try {
+        // Ưu tiên Vite env nếu có
+        if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+            apiKey = import.meta.env.VITE_API_KEY;
+        } 
+        // Fallback sang process.env (cần kiểm tra typeof process để tránh crash)
+        else if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+            apiKey = process.env.API_KEY;
+        }
+    } catch (e) {
+        console.warn("Lỗi khi đọc biến môi trường:", e);
+    }
     
     if (!apiKey) {
         console.warn("Cảnh báo: Chưa cấu hình API_KEY. Tính năng chat sẽ không hoạt động.");
-        // Khởi tạo với key giả để không crash ngay lập tức, nhưng sẽ lỗi khi gọi API
+        // Khởi tạo với key giả để không crash ứng dụng
         aiClient = new GoogleGenAI({ apiKey: 'MISSING_API_KEY' });
     } else {
         aiClient = new GoogleGenAI({ apiKey });
@@ -58,15 +69,13 @@ export const initializeChat = (data: SheetData) => {
     });
   } catch (error) {
     console.error("Lỗi khởi tạo Chat AI:", error);
-    // Không throw error để App vẫn chạy được phần bảng dữ liệu
   }
 };
 
 export const sendMessageToGemini = async (message: string): Promise<string> => {
   if (!chatSession) {
-    // Kiểm tra lại xem có client chưa, nếu chưa có (do lỗi init) thì báo lỗi
     if (!aiClient || (aiClient as any).apiKey === 'MISSING_API_KEY') {
-        return "Lỗi cấu hình: Thiếu API Key. Vui lòng kiểm tra biến môi trường.";
+        return "Lỗi cấu hình: Thiếu API Key. Vui lòng kiểm tra biến môi trường (VITE_API_KEY hoặc API_KEY).";
     }
     return "Phiên chat chưa sẵn sàng. Vui lòng đợi dữ liệu tải xong.";
   }
