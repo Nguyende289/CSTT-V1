@@ -6,52 +6,69 @@ let aiClient: GoogleGenAI | null = null;
 
 const getClient = () => {
   if (!aiClient) {
-    aiClient = new GoogleGenAI({ apiKey: process.env.API_KEY });
+    // An toàn: Kiểm tra biến môi trường trước khi sử dụng
+    // Nếu chạy local/github pages không có build process, process.env có thể rỗng do polyfill
+    const apiKey = process.env.API_KEY || '';
+    
+    if (!apiKey) {
+        console.warn("Cảnh báo: Chưa cấu hình API_KEY. Tính năng chat sẽ không hoạt động.");
+        // Khởi tạo với key giả để không crash ngay lập tức, nhưng sẽ lỗi khi gọi API
+        aiClient = new GoogleGenAI({ apiKey: 'MISSING_API_KEY' });
+    } else {
+        aiClient = new GoogleGenAI({ apiKey });
+    }
   }
   return aiClient;
 };
 
 export const initializeChat = (data: SheetData) => {
-  const client = getClient();
-  
-  // Create a context summary. If data is too large, we might truncate it.
-  // For this demo, we'll try to convert the rows to a JSON string.
-  // We limit to the first 100 rows to avoid token limits if the sheet is huge.
-  const dataSummary = JSON.stringify(data.rows.slice(0, 100));
-  const totalRows = data.rows.length;
-  const columns = data.columns.map(c => c.label).join(', ');
+  try {
+    const client = getClient();
+    
+    // Create a context summary.
+    const dataSummary = JSON.stringify(data.rows.slice(0, 100));
+    const totalRows = data.rows.length;
+    const columns = data.columns.map(c => c.label).join(', ');
 
-  const systemInstruction = `
-    You are an expert Data Analyst named "Gemini Analyst".
-    You are analyzing a dataset from a Google Sheet titled "Vụ việc" (Cases/Incidents).
-    
-    Dataset Metadata:
-    - Total Rows: ${totalRows} (Note: Only the first 100 rows are provided in context for detailed analysis if the dataset is large).
-    - Columns: ${columns}
-    
-    Current Data Sample (JSON):
-    ${dataSummary}
-    
-    Your goal is to answer user questions based STRICTLY on this data.
-    - If the user asks for a summary, analyze the provided rows.
-    - If the user asks for specific details, search the provided JSON.
-    - If the answer is not in the data, state that you cannot find it in the provided sample.
-    - Format your answers nicely using Markdown (lists, bold text, etc.).
-    - Be concise and professional.
-    - IMPORTANT: ALWAYS RESPOND IN VIETNAMESE (Tiếng Việt).
-  `;
+    const systemInstruction = `
+      You are an expert Data Analyst named "Gemini Analyst".
+      You are analyzing a dataset from a Google Sheet titled "Vụ việc" (Cases/Incidents).
+      
+      Dataset Metadata:
+      - Total Rows: ${totalRows} (Note: Only the first 100 rows are provided in context for detailed analysis if the dataset is large).
+      - Columns: ${columns}
+      
+      Current Data Sample (JSON):
+      ${dataSummary}
+      
+      Your goal is to answer user questions based STRICTLY on this data.
+      - If the user asks for a summary, analyze the provided rows.
+      - If the user asks for specific details, search the provided JSON.
+      - If the answer is not in the data, state that you cannot find it in the provided sample.
+      - Format your answers nicely using Markdown (lists, bold text, etc.).
+      - Be concise and professional.
+      - IMPORTANT: ALWAYS RESPOND IN VIETNAMESE (Tiếng Việt).
+    `;
 
-  chatSession = client.chats.create({
-    model: 'gemini-2.5-flash',
-    config: {
-      systemInstruction: systemInstruction,
-    },
-  });
+    chatSession = client.chats.create({
+      model: 'gemini-2.5-flash',
+      config: {
+        systemInstruction: systemInstruction,
+      },
+    });
+  } catch (error) {
+    console.error("Lỗi khởi tạo Chat AI:", error);
+    // Không throw error để App vẫn chạy được phần bảng dữ liệu
+  }
 };
 
 export const sendMessageToGemini = async (message: string): Promise<string> => {
   if (!chatSession) {
-    throw new Error("Chat session not initialized. Please load data first.");
+    // Kiểm tra lại xem có client chưa, nếu chưa có (do lỗi init) thì báo lỗi
+    if (!aiClient || (aiClient as any).apiKey === 'MISSING_API_KEY') {
+        return "Lỗi cấu hình: Thiếu API Key. Vui lòng kiểm tra biến môi trường.";
+    }
+    return "Phiên chat chưa sẵn sàng. Vui lòng đợi dữ liệu tải xong.";
   }
 
   try {
@@ -59,8 +76,11 @@ export const sendMessageToGemini = async (message: string): Promise<string> => {
       message: message
     });
     return result.text || "Không có phản hồi được tạo ra.";
-  } catch (error) {
+  } catch (error: any) {
     console.error("Gemini API Error:", error);
-    return "Xin lỗi, tôi gặp lỗi khi xử lý yêu cầu của bạn.";
+    if (error.message && error.message.includes('API key not valid')) {
+        return "Lỗi: API Key không hợp lệ hoặc đã hết hạn.";
+    }
+    return "Xin lỗi, tôi gặp lỗi khi xử lý yêu cầu. Vui lòng thử lại.";
   }
 };
