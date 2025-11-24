@@ -1,0 +1,5 @@
+{
+  "name": "Vụ Việc Tracker & AI Analyst",
+  "description": "A dashboard to view and analyze Google Sheet data (Vụ việc) with Gemini AI integration for smart insights.",
+  "requestFramePermissions": []
+}
